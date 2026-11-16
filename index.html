@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Animación de Billar — Guía Frame a Frame</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #0b1120;
+      color: #e2e8f0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      user-select: none;
+    }
+    .card {
+      width: 100%;
+      max-width: 780px;
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 14px;
+      padding: 18px 20px;
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.45);
+    }
+    h1 {
+      margin: 0 0 4px;
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: #f8fafc;
+    }
+    .subtitle {
+      margin: 0 0 14px;
+      font-size: 0.85rem;
+      color: #94a3b8;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #1f2937;
+      font-size: 0.82rem;
+    }
+    .btn-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    button {
+      border: 1px solid #334155;
+      background: #1e293b;
+      color: #f1f5f9;
+      padding: 6px 12px;
+      border-radius: 7px;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    button:hover { opacity: 0.88; }
+    button.primary {
+      background: #38bdf8;
+      border-color: #38bdf8;
+      color: #082f49;
+      font-weight: 600;
+    }
+    .toggles {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      color: #cbd5e1;
+    }
+    label.check {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+    input[type="checkbox"], input[type="range"] {
+      accent-color: #38bdf8;
+      cursor: pointer;
+    }
+    .canvas-wrap {
+      margin: 14px 0;
+      display: flex;
+      justify-content: center;
+    }
+    canvas {
+      width: 100%;
+      height: auto;
+      border-radius: 10px;
+      border: 1px solid #1f2937;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+    .timeline {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.82rem;
+    }
+    .timeline button {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      padding: 5px 10px;
+    }
+    #frameSlider {
+      flex: 1;
+    }
+    #frameLabel {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-variant-numeric: tabular-nums;
+      color: #94a3b8;
+      min-width: 105px;
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Dispersión de Bolas de Billar (24 fps)</h1>
+    <p class="subtitle">Guía interactiva frame a frame para animar el saque en Adobe Animate.</p>
+
+    <div class="toolbar">
+      <div class="btn-group">
+        <button id="btnPlay" class="primary">Pausar</button>
+        <button id="btnReset">Reiniciar</button>
+        <button id="btnSlow" title="Alternar cámara lenta">1x</button>
+      </div>
+
+      <div class="toggles">
+        <label class="check">
+          <input id="chkTrails" type="checkbox" checked />
+          <span>Trayectorias (Guía)</span>
+        </label>
+        <label class="check">
+          <input id="chkOnion" type="checkbox" />
+          <span>Papel cebolla</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="canvas-wrap">
+      <canvas id="table" width="720" height="360"></canvas>
+    </div>
+
+    <div class="timeline">
+      <button id="btnPrev" title="Fotograma anterior">&lt;</button>
+      <button id="btnNext" title="Siguiente fotograma">&gt;</button>
+      <input id="frameSlider" type="range" min="0" max="130" value="0" />
+      <span id="frameLabel">Frame 0 / 130</span>
+    </div>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('table');
+    const ctx = canvas.getContext('2d');
+
+    const W = canvas.width;
+    const H = canvas.height;
+    const RAIL = 34;
+    const LEFT = RAIL;
+    const RIGHT = W - RAIL;
+    const TOP = RAIL;
+    const BOTTOM = H - RAIL;
+    const R = 11.5;
+    const POCKET_R = 19;
+
+    const pockets = [
+      { x: LEFT + 2, y: TOP + 2 },
+      { x: W / 2, y: TOP - 3 },
+      { x: RIGHT - 2, y: TOP + 2 },
+      { x: LEFT + 2, y: BOTTOM - 2 },
+      { x: W / 2, y: BOTTOM + 3 },
+      { x: RIGHT - 2, y: BOTTOM - 2 }
+    ];
+
+    const BALL_STYLES = {
+      0:  { color: '#f8fafc', stripe: false },
+      1:  { color: '#facc15', stripe: false },
+      2:  { color: '#2563eb', stripe: false },
+      3:  { color: '#dc2626', stripe: false },
+      4:  { color: '#7c3aed', stripe: false },
+      5:  { color: '#ea580c', stripe: false },
+      6:  { color: '#16a34a', stripe: false },
+      7:  { color: '#991b1b', stripe: false },
+      8:  { color: '#111827', stripe: false },
+      9:  { color: '#facc15', stripe: true },
+      10: { color: '#2563eb', stripe: true },
+      11: { color: '#dc2626', stripe: true },
+      12: { color: '#7c3aed', stripe: true },
+      13: { color: '#ea580c', stripe: true },
+      14: { color: '#16a34a', stripe: true },
+      15: { color: '#991b1b', stripe: true }
+    };
+
+    const RACK_COLS = [
+      [7],
+      [3, 5],
+      [4, 6, 11],
+      [1, 14, 8, 2],
+      [13, 12, 15, 9, 10]
+    ];
+
+    function createInitialBalls() {
+      const balls = [];
+      balls.push({
+        id: 0,
+        x: 340,
+        y: H / 2 + 1.2,
+        vx: 24.5,
+        vy: -0.45,
+        pocketed: false
+      });
+
+      const apexX = 468;
+      const apexY = H / 2;
+      const dx = R * 2 * Math.cos(Math.PI / 6) + 0.15;
+      const dy = R * 2 + 0.15;
+
+      const jitter = [
+        [0, 0], [0.2, -0.15], [-0.15, 0.2], [0.1, 0.25], [-0.2, -0.1],
+        [0.25, 0.1], [-0.1, 0.2], [0.15, -0.25], [-0.25, 0.15], [0.2, 0.2],
+        [-0.15, -0.2], [0.1, 0.15], [-0.2, 0.25], [0.25, -0.15], [0.05, -0.2]
+      ];
+      let jIdx = 0;
+
+      RACK_COLS.forEach((col, cIdx) => {
+        const x = apexX + cIdx * dx;
+        const startY = apexY - ((col.length - 1) * dy) / 2;
+        col.forEach((id, rIdx) => {
+          const [jx, jy] = jitter[jIdx++] || [0, 0];
+          balls.push({
+            id,
+            x: x + jx,
+            y: startY + rIdx * dy + jy,
+            vx: 0,
+            vy: 0,
+            pocketed: false
+          });
+        });
+      });
+
+      return balls;
+    }
+
+    const TOTAL_FRAMES = 130;
+    const SUBSTEPS = 12;
+    const FRICTION = 0.989;
+    const RESTITUTION_BALL = 0.96;
+    const RESTITUTION_WALL = 0.86;
+
+    const frames = [];
+
+    function simulateAll() {
+      const state = createInitialBalls();
+      const subFriction = Math.pow(FRICTION, 1 / SUBSTEPS);
+
+      for (let f = 0; f <= TOTAL_FRAMES; f++) {
+        frames.push(state.map(b => ({ ...b })));
+
+        for (let s = 0; s < SUBSTEPS; s++) {
+          const dt = 1 / SUBSTEPS;
+
+          for (const b of state) {
+            if (b.pocketed) continue;
+            b.x += b.vx * dt;
+            b.y += b.vy * dt;
+            b.vx *= subFriction;
+            b.vy *= subFriction;
+            if (Math.hypot(b.vx, b.vy) < 0.04) {
+              b.vx = 0;
+              b.vy = 0;
+            }
+          }
+
+          for (const b of state) {
+            if (b.pocketed) continue;
+            for (const p of pockets) {
+              if (Math.hypot(b.x - p.x, b.y - p.y) < POCKET_R - 2) {
+                b.pocketed = true;
+                b.vx = 0;
+                b.vy = 0;
+                break;
+              }
+            }
+          }
+
+          for (const b of state) {
+            if (b.pocketed) continue;
+            if (b.x - R < LEFT) {
+              b.x = LEFT + R;
+              b.vx = Math.abs(b.vx) * RESTITUTION_WALL;
+            } else if (b.x + R > RIGHT) {
+              b.x = RIGHT - R;
+              b.vx = -Math.abs(b.vx) * RESTITUTION_WALL;
+            }
+            if (b.y - R < TOP) {
+              b.y = TOP + R;
+              b.vy = Math.abs(b.vy) * RESTITUTION_WALL;
+            } else if (b.y + R > BOTTOM) {
+              b.y = BOTTOM - R;
+              b.vy = -Math.abs(b.vy) * RESTITUTION_WALL;
+            }
+          }
+
+          for (let i = 0; i < state.length; i++) {
+            const a = state[i];
+            if (a.pocketed) continue;
+            for (let j = i + 1; j < state.length; j++) {
+              const b = state[j];
+              if (b.pocketed) continue;
+
+              const dx = b.x - a.x;
+              const dy = b.y - a.y;
+              const dist = Math.hypot(dx, dy);
+              const minDist = R * 2;
+
+              if (dist > 0 && dist < minDist) {
+                const nx = dx / dist;
+                const ny = dy / dist;
+
+                const overlap = (minDist - dist) / 2;
+                a.x -= nx * overlap;
+                a.y -= ny * overlap;
+                b.x += nx * overlap;
+                b.y += ny * overlap;
+
+                const dvx = a.vx - b.vx;
+                const dvy = a.vy - b.vy;
+                const relVel = dvx * nx + dvy * ny;
+
+                if (relVel > 0) {
+                  const impulse = relVel * (1 + RESTITUTION_BALL) * 0.5;
+                  a.vx -= impulse * nx;
+                  a.vy -= impulse * ny;
+                  b.vx += impulse * nx;
+                  b.vy += impulse * ny;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    simulateAll();
+
+    let currentFrame = 0;
+    let isPlaying = true;
+    let slowMo = false;
+    let showTrails = true;
+    let showOnion = false;
+    let lastTime = 0;
+    let accum = 0;
+
+    const btnPlay = document.getElementById('btnPlay');
+    const btnReset = document.getElementById('btnReset');
+    const btnSlow = document.getElementById('btnSlow');
+    const btnPrev = document.getElementById('btnPrev');
+    const btnNext = document.getElementById('btnNext');
+    const chkTrails = document.getElementById('chkTrails');
+    const chkOnion = document.getElementById('chkOnion');
+    const frameSlider = document.getElementById('frameSlider');
+    const frameLabel = document.getElementById('frameLabel');
+
+    function updateUI() {
+      frameSlider.value = currentFrame;
+      frameLabel.textContent = `Frame ${currentFrame} / ${TOTAL_FRAMES}`;
+      btnPlay.textContent = isPlaying ? 'Pausar' : 'Reproducir';
+    }
+
+    function drawTable() {
+      ctx.fillStyle = '#5c1d12';
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle = '#0e5a6d';
+      ctx.fillRect(RAIL - 7, RAIL - 7, W - (RAIL - 7) * 2, H - (RAIL - 7) * 2);
+
+      const grad = ctx.createRadialGradient(W / 2, H / 2, 30, W / 2, H / 2, W * 0.55);
+      grad.addColorStop(0, '#229bb5');
+      grad.addColorStop(1, '#0d6e82');
+      ctx.fillStyle = grad;
+      ctx.fillRect(LEFT, TOP, RIGHT - LEFT, BOTTOM - TOP);
+
+      ctx.fillStyle = '#d1d5db';
+      const diamondXs = [
+        LEFT + (W / 2 - LEFT) * 0.25, LEFT + (W / 2 - LEFT) * 0.5, LEFT + (W / 2 - LEFT) * 0.75,
+        W / 2 + (RIGHT - W / 2) * 0.25, W / 2 + (RIGHT - W / 2) * 0.5, W / 2 + (RIGHT - W / 2) * 0.75
+      ];
+      diamondXs.forEach(x => {
+        ctx.beginPath(); ctx.arc(x, RAIL / 2 - 4, 2.2, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x, H - RAIL / 2 + 4, 2.2, 0, Math.PI * 2); ctx.fill();
+      });
+
+      for (const p of pockets) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, POCKET_R + 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#6b7280';
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, POCKET_R, 0, Math.PI * 2);
+        ctx.fillStyle = '#09090b';
+        ctx.fill();
+      }
+    }
+
+    function drawBall(b, alpha = 1) {
+      if (b.pocketed) return;
+      const style = BALL_STYLES[b.id];
+      ctx.save();
+      ctx.globalAlpha = alpha;
+
+      if (alpha === 1) {
+        ctx.beginPath();
+        ctx.arc(b.x + 2, b.y + 2.5, R, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0,0,0,0.32)';
+        ctx.fill();
+      }
+
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, R, 0, Math.PI * 2);
+      ctx.fillStyle = style.stripe ? '#f8fafc' : style.color;
+      ctx.fill();
+
+      if (style.stripe) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, R, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.fillStyle = style.color;
+        ctx.fillRect(b.x - R, b.y - R * 0.52, R * 2, R * 1.04);
+        ctx.restore();
+      }
+
+      const shine = ctx.createRadialGradient(b.x - R * 0.35, b.y - R * 0.35, 1, b.x, b.y, R);
+      shine.addColorStop(0, 'rgba(255,255,255,0.45)');
+      shine.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+      shine.addColorStop(1, 'rgba(0,0,0,0.22)');
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, R, 0, Math.PI * 2);
+      ctx.fillStyle = shine;
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+
+      if (b.id > 0) {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, R * 0.48, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+
+        ctx.fillStyle = '#111827';
+        ctx.font = 'bold 8.5px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(b.id), b.x, b.y + 0.5);
+      }
+
+      ctx.restore();
+    }
+
+    function drawTrails(upToFrame) {
+      if (!showTrails || upToFrame === 0) return;
+
+      for (let i = 0; i < frames[0].length; i++) {
+        const style = BALL_STYLES[frames[0][i].id];
+        ctx.beginPath();
+        let started = false;
+        for (let f = 0; f <= upToFrame; f++) {
+          const b = frames[f][i];
+          if (b.pocketed) break;
+          if (!started) {
+            ctx.moveTo(b.x, b.y);
+            started = true;
+          } else {
+            ctx.lineTo(b.x, b.y);
+          }
+        }
+        ctx.strokeStyle = frames[0][i].id === 0 ? 'rgba(255,255,255,0.55)' : style.color;
+        ctx.globalAlpha = 0.45;
+        ctx.lineWidth = 1.6;
+        ctx.setLineDash([3, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function drawOnionSkin(frameIdx) {
+      if (!showOnion) return;
+      const ghosts = [frameIdx - 6, frameIdx - 3];
+      ghosts.forEach((gf, idx) => {
+        if (gf >= 0) {
+          const alpha = idx === 0 ? 0.16 : 0.28;
+          for (const b of frames[gf]) {
+            drawBall(b, alpha);
+          }
+        }
+      });
+    }
+
+    function render() {
+      drawTable();
+      drawTrails(currentFrame);
+      drawOnionSkin(currentFrame);
+      for (const b of frames[currentFrame]) {
+        drawBall(b, 1);
+      }
+
+      if (currentFrame >= 4 && currentFrame <= 7) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(468 - R, H / 2, R + 6 + (currentFrame - 4) * 3, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    function loop(ts) {
+      if (!lastTime) lastTime = ts;
+      const delta = ts - lastTime;
+      lastTime = ts;
+
+      if (isPlaying) {
+        const frameDuration = slowMo ? 1000 / 12 : 1000 / 24;
+        accum += delta;
+        if (accum >= frameDuration) {
+          accum %= frameDuration;
+          currentFrame++;
+          if (currentFrame > TOTAL_FRAMES) {
+            currentFrame = 0;
+          }
+          updateUI();
+        }
+      }
+
+      render();
+      requestAnimationFrame(loop);
+    }
+
+    btnPlay.addEventListener('click', () => {
+      isPlaying = !isPlaying;
+      updateUI();
+    });
+
+    btnReset.addEventListener('click', () => {
+      currentFrame = 0;
+      isPlaying = true;
+      updateUI();
+    });
+
+    btnSlow.addEventListener('click', () => {
+      slowMo = !slowMo;
+      btnSlow.textContent = slowMo ? '0.5x' : '1x';
+    });
+
+    btnPrev.addEventListener('click', () => {
+      isPlaying = false;
+      currentFrame = Math.max(0, currentFrame - 1);
+      updateUI();
+    });
+
+    btnNext.addEventListener('click', () => {
+      isPlaying = false;
+      currentFrame = Math.min(TOTAL_FRAMES, currentFrame + 1);
+      updateUI();
+    });
+
+    frameSlider.addEventListener('input', (e) => {
+      isPlaying = false;
+      currentFrame = parseInt(e.target.value, 10);
+      updateUI();
+    });
+
+    chkTrails.addEventListener('change', (e) => {
+      showTrails = e.target.checked;
+    });
+
+    chkOnion.addEventListener('change', (e) => {
+      showOnion = e.target.checked;
+    });
+
+    updateUI();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
